@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { signIn, signOut, useSession } from "next-auth/react";
+import { toast } from "sonner";
 import ConversationSidebar from "@/components/features/chat/sidebar";
 import ChatComposer from "@/components/features/chat/composer";
 import ChatMessageList from "@/components/features/chat/message-list";
@@ -116,6 +117,7 @@ type ChatAppProps = {
 };
 
 export default function ChatApp({ routeConversationId }: ChatAppProps) {
+  const MAX_UPLOAD_SIZE_BYTES = 5 * 1024 * 1024;
   const router = useRouter();
   const queryClient = useQueryClient();
   const { data: session, status } = useSession();
@@ -242,6 +244,12 @@ export default function ChatApp({ routeConversationId }: ChatAppProps) {
     setAttachments([]);
     setDataError(null);
   }, [isStreamingReply, routeConversationId, streamingMessages]);
+
+  useEffect(() => {
+    if (!dataError) return;
+    toast.error(dataError);
+    setDataError(null);
+  }, [dataError]);
 
   const ensureConversationIdForMessage = async (
     titleSeed: string,
@@ -565,7 +573,14 @@ export default function ChatApp({ routeConversationId }: ChatAppProps) {
   const handleUploadFiles = async (files: File[]) => {
     if (!session?.user?.id || isStreamingReply || files.length === 0) return;
 
-    const validFiles = files.filter((file) => isAllowedAttachmentFile(file));
+    const oversizedFiles = files.filter((file) => file.size > MAX_UPLOAD_SIZE_BYTES);
+    if (oversizedFiles.length > 0) {
+      setDataError("Some files were skipped. Maximum file size is 5MB.");
+    }
+
+    const validFiles = files
+      .filter((file) => file.size <= MAX_UPLOAD_SIZE_BYTES)
+      .filter((file) => isAllowedAttachmentFile(file));
     if (validFiles.length !== files.length) {
       setDataError(
         "Some files were skipped. Only image/document files are supported (jpg, png, webp, gif, pdf, doc, docx, txt, md).",
@@ -864,12 +879,6 @@ export default function ChatApp({ routeConversationId }: ChatAppProps) {
           <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
             <div className="flex-1 overflow-y-auto px-4 pt-6 sm:px-8">
               <div className="mx-auto max-w-3xl space-y-6">
-                {dataError && (
-                  <p className="text-destructive rounded-xl border border-dashed p-3 text-sm">
-                    {dataError}
-                  </p>
-                )}
-
                 {conversationsQuery.isLoading ||
                 conversationDetailQuery.isLoading ? (
                   <p className="text-muted-foreground pt-8 text-center text-sm">

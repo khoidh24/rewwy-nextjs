@@ -5,7 +5,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { authOptions } from "@/auth";
 
-const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
+const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024;
 const ALLOWED_IMAGE_MIME_TYPES = new Set([
   "image/jpeg",
   "image/png",
@@ -87,7 +87,7 @@ export async function POST(request: NextRequest) {
 
     if (rawFile.size > MAX_FILE_SIZE_BYTES) {
       return NextResponse.json(
-        { message: "File is too large (max 10MB)" },
+        { message: "File is too large (max 5MB)" },
         { status: 400 },
       );
     }

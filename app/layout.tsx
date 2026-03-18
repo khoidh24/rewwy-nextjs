@@ -3,6 +3,7 @@ import { Be_Vietnam_Pro } from "next/font/google";
 import "./globals.css";
 import { cn } from "@/lib/utils";
 import AuthSessionProvider from "@/components/providers/auth-session-provider";
+import Toaster from "@/components/ui/sonner";
 
 const beVietnamPro = Be_Vietnam_Pro({
   weight: ["400", "500", "700"],
@@ -27,7 +28,10 @@ export default function RootLayout({
       className={cn("font-sans antialiased", beVietnamPro.variable)}
     >
       <body>
-        <AuthSessionProvider>{children}</AuthSessionProvider>
+        <AuthSessionProvider>
+          {children}
+          <Toaster />
+        </AuthSessionProvider>
       </body>
     </html>
   );
