@@ -25,14 +25,16 @@ export default function SignupPage() {
 
   const onSubmit = async (values: SignupFormValues) => {
     setError(null);
+    const normalizedEmail = values.email.trim().toLowerCase();
+    const normalizedPassword = values.password.trim();
 
     const signupResponse = await fetch("/api/auth/signup", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         displayName: values.displayName,
-        email: values.email,
-        password: values.password,
+        email: normalizedEmail,
+        password: normalizedPassword,
       }),
     });
 
@@ -45,14 +47,34 @@ export default function SignupPage() {
       return;
     }
 
-    const signInResult = await signIn("credentials", {
-      email: values.email,
-      password: values.password,
-      redirect: false,
-    });
+    // Retry a few times in case backend/session propagation is briefly delayed.
+    let signInResult:
+      | Awaited<ReturnType<typeof signIn>>
+      | null = null;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      signInResult = await signIn("credentials", {
+        email: normalizedEmail,
+        password: normalizedPassword,
+        autoFromSignup: "1",
+        redirect: false,
+      });
+
+      if (signInResult && !signInResult.error) {
+        break;
+      }
+
+      if (attempt < 2) {
+        await new Promise((resolve) => setTimeout(resolve, 400));
+      }
+    }
 
     if (!signInResult || signInResult.error) {
-      setError("Signup successful, but automatic login failed");
+      setError(
+        signInResult?.error
+          ? `Signup successful, but automatic login failed (${signInResult.error})`
+          : "Signup successful, but automatic login failed",
+      );
+      router.push(`/login?email=${encodeURIComponent(normalizedEmail)}`);
       return;
     }
 

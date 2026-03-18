@@ -43,6 +43,10 @@ const isAccessTokenStale = (accessToken: string) => {
 };
 
 const refreshAccessToken = async (refreshToken: string) => {
+  if (!backendUrl || !backendApiKey) {
+    return null;
+  }
+
   const response = await fetch(`${backendUrl}/v1/api/refresh-token`, {
     method: "POST",
     headers: {
@@ -71,6 +75,45 @@ const refreshAccessToken = async (refreshToken: string) => {
   };
 };
 
+const loginWithRetry = async (
+  email: string,
+  password: string,
+  shouldRetry: boolean,
+) => {
+  const maxAttempts = shouldRetry ? 6 : 1;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    try {
+      const response = await fetch(`${backendUrl}/v1/api/login`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-rewwy-api-key": backendApiKey ?? "",
+        },
+        body: JSON.stringify({ email, password }),
+      });
+
+      if (response.ok) {
+        const data = (await response.json()) as {
+          metadata?: { accessToken?: string; refreshToken?: string };
+        };
+        return {
+          accessToken: data.metadata?.accessToken ?? null,
+          refreshToken: data.metadata?.refreshToken ?? null,
+        };
+      }
+    } catch {
+      // Keep retrying for transient network/serverless startup issues.
+    }
+
+    if (attempt < maxAttempts - 1) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+  }
+
+  return { accessToken: null, refreshToken: null };
+};
+
 const isAuthorizedUser = (
   user: unknown,
 ): user is AuthorizedUser => {
@@ -85,18 +128,21 @@ const isAuthorizedUser = (
   );
 };
 
-const backendUrl = process.env.BACKEND_URL;
-const backendApiKey = process.env.BACKEND_X_API_KEY;
+const backendUrl = process.env.BACKEND_URL ?? "";
+const backendApiKey = process.env.BACKEND_X_API_KEY ?? "";
+const nextAuthSecret = process.env.NEXTAUTH_SECRET;
+const nextAuthUrl = process.env.NEXTAUTH_URL;
 
-if (!backendUrl) {
-  throw new Error("Missing BACKEND_URL environment variable");
+if (process.env.NODE_ENV === "production" && !nextAuthSecret) {
+  throw new Error("Missing NEXTAUTH_SECRET environment variable");
 }
 
-if (!backendApiKey) {
-  throw new Error("Missing BACKEND_X_API_KEY environment variable");
+if (process.env.NODE_ENV === "production" && !nextAuthUrl) {
+  throw new Error("Missing NEXTAUTH_URL environment variable");
 }
 
 export const authOptions: NextAuthOptions = {
+  secret: nextAuthSecret,
   session: { strategy: "jwt" },
   providers: [
     Credentials({
@@ -106,28 +152,25 @@ export const authOptions: NextAuthOptions = {
         password: { label: "Password", type: "password" },
       },
       authorize: async (credentials) => {
-        const email = credentials?.email as string | undefined;
-        const password = credentials?.password as string | undefined;
+        const rawCredentials = credentials as
+          | Record<string, string | undefined>
+          | undefined;
+        const email = rawCredentials?.email;
+        const password = rawCredentials?.password;
+        const autoFromSignup = rawCredentials?.autoFromSignup === "1";
 
         if (!email || !password) return null;
 
-        const response = await fetch(`${backendUrl}/v1/api/login`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-rewwy-api-key": backendApiKey,
-          },
-          body: JSON.stringify({ email, password }),
-        });
-
-        if (!response.ok) return null;
-
-        const data = (await response.json()) as {
-          metadata?: { accessToken?: string; refreshToken?: string };
-        };
-
-        const accessToken = data.metadata?.accessToken;
-        const refreshToken = data.metadata?.refreshToken;
+        const normalizedEmail = email.trim().toLowerCase();
+        const normalizedPassword = password.trim();
+        if (!backendUrl || !backendApiKey) {
+          return null;
+        }
+        const { accessToken, refreshToken } = await loginWithRetry(
+          normalizedEmail,
+          normalizedPassword,
+          autoFromSignup,
+        );
         if (!accessToken || !refreshToken) return null;
 
         const userId = decodeUserIdFromJwt(accessToken);
@@ -135,7 +178,7 @@ export const authOptions: NextAuthOptions = {
 
         return {
           id: userId,
-          email,
+          email: normalizedEmail,
           accessToken,
           refreshToken,
         };
